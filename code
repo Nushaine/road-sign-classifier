@@ -1,0 +1,149 @@
+#build the model
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import BatchNormalization
+from tensorflow.keras.layers import Conv2D
+from tensorflow.keras.layers import MaxPooling2D
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.layers import Flatten
+from tensorflow.keras.layers import Dropout
+from tensorflow.keras.layers import Dense
+
+#build the model
+class TrafficSignNet:
+    def buildModel(width, height, depth, classes):
+        model = Sequential()
+        inputShape = (height, width, depth)
+        
+        #1st concolution layer
+        model.add(Conv2D(16, (5, 5), input_shape=inputShape, activation="relu"))
+        model.add(MaxPooling2D(pool_size=(2, 2)))
+        
+        #2nd convolution layer
+        model.add(Conv2D(32, (3, 3), activation="relu"))
+        model.add(MaxPooling2D(pool_size=(2, 2)))
+        
+        #3rd concolution layer
+        model.add(Conv2D(64, (3, 3), activation="relu"))
+        model.add(MaxPooling2D(pool_size=(2, 2)))
+        
+        #fully connected layer
+        model.add(Flatten())
+        model.add(Dropout(0.5))
+        model.add(Dense(512, activation="relu"))
+
+        #output layer
+        model.add(Dense(classes, activation="softmax"))
+        return model
+        from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+#train the model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import to_categorical
+# we're going to use Scikit Learn instead of OpenCV because it has some more preprocessing algos that come in useful (CLAHE)
+from sklearn.metrics import classification_report
+from skimage import transform
+from skimage import exposure
+from skimage import io
+import matplotlib.pyplot as plt
+import numpy as np
+import argparse
+import random
+import os
+
+data_path = r"D:\users\new owner\Desktop\Christmas Break\gtsrb-german-traffic-sign"
+
+def load_data(data_path, csv_path):
+    #list for data and labels
+    X = []
+    y = []
+    #opens CSV file, strips whitespace, puts each row on a new line
+    rows = open(csv_path).read().strip().split("\n")[1:]
+    #shuffles the data 
+    random.shuffle(rows)
+    # 'i' is the row number, and 'rows' is the row contents 
+    for (i, row) in enumerate(rows):
+        #gives an update on how many rows have been loaded
+        if i % 500 == 0:
+            print(f"UPDATE: {i} rows have been loaded")
+        #grab the class ID and the image path
+        (img_class, img_path) = row.strip().split(",")[-2:]
+        #join the path to the train data with the path to the image to create the full path
+        full_path = os.path.sep.join([data_path, img_path])
+        
+        #load the image
+        image = io.imread(full_path)
+        #resize image to 32 X 32 
+        image = transform.resize(image, (32, 32))
+        #applu CLAHE to the image
+        image = exposure.equalize_adapthist(image, clip_limit=0.1)
+        
+        #update lists of labels and image
+        X.append(image)
+        y.append(img_class)
+    
+    #convert images and labels to numpy arrays
+    X = np.array(X)
+    y = np.array(y)
+    
+    #returns tuple (images, labels)
+    return (X, y)  
+    
+
+#define hyperparameters --> parameters that the neural network cannot learn itself
+
+#number of cycles that a NN goes through the WHOLE training processs
+epochs = 40
+#size of each step that is taken to minimize the loss function
+learning_rate = 0.001
+#number of training examples fed into a network at one go (speeds up learning)
+
+#path to train + test data
+train = os.path.sep.join([data_path, "Train.csv"])
+test = os.path.sep.join([data_path, "Test.csv"])
+
+#load training + testing data
+print("UPDATE: Loading data")
+(train_X, train_y) = load_data(data_path, train)
+(test_X, test_y) = load_data(data_path, test)
+
+#normalize data
+print("UPDATE: Normalizing data")
+train_X = train_X.astype("float32") / 255.0
+test_X = test_X.astype("float32") / 255.0
+
+print(f"Train_y: {train_y}")
+print(f"Train_x.shape: {train_X.shape[0]}")
+
+#one-hot encode the test + train labels
+print("UPDATE: One-Hot Encoding data")
+num_labels = len(np.unique(train_y))
+#creates binary matrix that has a length equal to 43 
+trainY = to_categorical(train_y, num_labels)
+testY = to_categorical(test_y, num_labels)
+
+#prepare + train the model
+
+#data augmentation
+data_aug = ImageDataGenerator(
+rotation_range=10,
+zoom_range=0.15,
+width_shift_range=0.1,
+height_shift_range=0.1,
+shear_range=0.15,
+horizontal_flip=False,
+vertical_flip=False)
+
+#compiling the model
+model = TrafficSignNet.buildModel(width=32, height=32, depth=3, classes=43)
+optimizer = Adam(lr=learning_rate, decay=learning_rate / (epochs))
+
+model.compile(optimizer=optimizer, loss="categorical_crossentropy", metrics=["accuracy"])
+
+fit = model.fit_generator(
+    data_aug.flow(train_X, trainY, batch_size=batch_size), 
+    epochs=epochs,
+    validation_data=(test_X, testY),
+    class_weight=class_weight,
+    verbose=1)
+    
